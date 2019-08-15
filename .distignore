@@ -1,0 +1,15 @@
+.distignore
+.editorconfig
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+composer*
+phpcs.xml
+vendor
+.gitmodules
+includes/libs/selfd/.*
+includes/libs/selfd/composer*
+includes/libs/selfd/example.php
+includes/libs/selfd/phpcs.xml
+includes/libs/selfd/README.md
