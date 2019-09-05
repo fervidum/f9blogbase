@@ -4,7 +4,7 @@
  * Description:     Blog Permalinks Base functions.
  * Author:          Fervidum
  * Author URI:      https://fervidum.github.io/
- * Version:         1.0.0
+ * Version:         1.0.1
  * Directory:       https://fervidum.github.io/blogpermalinks
  *
  * @package         f9blogbase
@@ -50,7 +50,7 @@ function f9blogbase_load_textdomain() {
 	$locale = apply_filters( 'plugin_locale', $locale, 'f9blogbase' );
 
 	unload_textdomain( 'f9blogbase' );
-	load_plugin_textdomain( 'f9blogbase', false, plugin_basename( dirname( THRIFTSTORE_PLUGIN_FILE ) ) . '/languages' );
+	load_plugin_textdomain( 'f9blogbase', false, plugin_basename( dirname( F9BLOGBASE_PLUGIN_FILE ) ) . '/languages' );
 	load_textdomain( 'f9blogbase', f9blogbase_file_path( 'languages/' . $locale . '.mo' ) );
 }
 add_action( 'init', 'f9blogbase_load_textdomain', 0 );
@@ -275,16 +275,12 @@ function f9blogbase_settings_save() {
 }
 
 /**
- * Update default rewrite post type post.
+ * Rewirite rules with match query pair for post.
  *
- * @param string $post_type Post type.
+ * @return array
  */
-function f9blogbase_blog_rewrite_rule( $post_type ) {
-	global $wp_rewrite;
-
-	if ( 'post' !== $post_type ) {
-		return;
-	}
+function f9blogbase_match_query_post() {
+	$match_query = array();
 
 	$permalinks = f9_get_permalink_structure();
 
@@ -303,7 +299,108 @@ function f9blogbase_blog_rewrite_rule( $post_type ) {
 
 		foreach ( $pairs as $match => $query ) {
 			$match = $prefix . '/([^/]+)' . $match;
-			$query = 'index.php?name=$matches[1]&post_type=post&' . $query;
+
+			$match_query[ $match ] = 'index.php?name=$matches[1]&post_type=post&' . $query;
+		}
+	}
+	return apply_filters(
+		'f9blogbase_match_query_post',
+		$match_query
+	);
+}
+
+/**
+ * Rewirite rules with match query pair for term.
+ *
+ * @param  string $taxonomy Taxonomy name.
+ * @return array
+ */
+function f9blogbase_match_query_term( $taxonomy ) {
+	$match_query = array();
+
+	$permalinks = f9_get_permalink_structure();
+
+	$tax_base = get_option( $taxonomy . '_base' );
+
+	if ( $permalinks['blog_rewrite_slug'] ) {
+		$prefix = trim( $permalinks['blog_rewrite_slug'], '/' );
+
+		$pairs = array(
+			'/feed/(feed|rdf|rss|rss2|atom)' => 'feed=$matches[2]',
+			'/(feed|rdf|rss|rss2|atom)'      => 'feed=$matches[2]',
+			'/embed'                         => 'embed=true',
+			'/page/?([0-9]{1,})'             => 'paged=$matches[2]',
+			'/?'                             => '',
+		);
+
+		$term_base = trim( preg_replace( '$^' . $prefix . '$', '', $tax_base ), '/' );
+
+		$term_prefix = $prefix . '/' . $term_base . '/';
+
+		foreach ( $pairs as $match => $query ) {
+			$match = $term_prefix . '([^/]+)' . $match;
+			$query = 'index.php?' . $taxonomy . '_name=$matches[1]' . ( $query ? '&' . $query : $query );
+
+			$match_query[ $match ] = $query;
+		}
+	}
+	return apply_filters(
+		'f9blogbase_match_query_term',
+		$match_query,
+		$taxonomy
+	);
+}
+
+/**
+ * Rewirite rules with match query pair for tems.
+ *
+ * @return array
+ */
+function f9blogbase_match_query_terms() {
+	$match_query = array();
+
+	$taxonomies = apply_filters(
+		'f9blogbase_post_taxonomies',
+		array(
+			'category',
+			'tag',
+		)
+	);
+
+	foreach ( $taxonomies as $taxonomy ) {
+		$match_query = array_merge(
+			$match_query,
+			f9blogbase_match_query_term( $taxonomy )
+		);
+	}
+
+	return apply_filters(
+		'f9blogbase_match_query_terms',
+		$match_query
+	);
+}
+
+/**
+ * Update default rewrite post type post.
+ *
+ * @param string $post_type Post type.
+ */
+function f9blogbase_blog_rewrite_rule( $post_type ) {
+	global $wp_rewrite;
+
+	if ( 'post' !== $post_type ) {
+		return;
+	}
+
+	$permalinks = f9_get_permalink_structure();
+
+	if ( $permalinks['blog_rewrite_slug'] ) {
+		$rules = array_merge(
+			f9blogbase_match_query_post(),
+			f9blogbase_match_query_terms()
+		);
+
+		foreach ( $rules as $match => $query ) {
 			add_rewrite_rule( $match, $query, 'top' );
 		}
 	}
@@ -311,29 +408,105 @@ function f9blogbase_blog_rewrite_rule( $post_type ) {
 add_action( 'registered_post_type', 'f9blogbase_blog_rewrite_rule', 10, 2 );
 
 /**
- * Blog without base when used is 404.
+ * Parse request to post terms or post.
  *
- * @param bool   $is_404 Is 404.
- * @param object $wp_query WP_Query object.
- * @return bool
+ * @param  object $wp_query Query object.
+ * @return object
  */
-function f9blogbase_blog_404( $is_404, $wp_query ) {
+function f9blogbase_parse_request( $wp_query ) {
 	$permalinks = f9_get_permalink_structure();
 
-	$post = ! isset( $wp_query->query_vars['post_type'] ) || ! $wp_query->query_vars['post_type'];
-	$name = isset( $wp_query->query_vars['name'] ) && $wp_query->query_vars['name'];
-	if ( $permalinks['blog_rewrite_slug'] && $name && $post ) {
-		$post = get_page_by_path( $wp_query->query_vars['name'], OBJECT, 'post' );
-		if ( $post && 'post' === $post->post_type ) {
-			$wp_query->set_404();
-			status_header( 404 );
-			nocache_headers();
+	if ( ! $permalinks['blog_rewrite_slug'] ) {
+		return $wp_query;
+	}
+
+	$prefix = trim( $permalinks['blog_rewrite_slug'], '/' );
+
+	$taxonomies = apply_filters(
+		'f9blogbase_post_taxonomies',
+		array(
+			'category',
+			'tag',
+		)
+	);
+
+	$rules = array();
+
+	foreach ( $taxonomies as $taxonomy ) {
+		$tax_base = get_option( $taxonomy . '_base' );
+		if ( $tax_base ) {
+			$term_base   = trim( preg_replace( '$^' . $prefix . '$', '', $tax_base ), '/' );
+			$term_prefix = $prefix . '/' . $term_base . '/';
+			if ( preg_match( "#^$term_prefix#", $wp_query->request ) || preg_match( "#^$term_prefix#", urldecode( $wp_query->request ) ) ) {
+				$rules = f9blogbase_match_query_term( $taxonomy );
+			}
 		}
 	}
 
-	return $is_404;
+	if ( ! $rules ) {
+		$rules = f9blogbase_match_query_post();
+	}
+
+	foreach ( $rules as $match => $query ) {
+		if ( preg_match( "#^$match#", $wp_query->request, $matches ) || preg_match( "#^$match#", urldecode( $wp_query->request ), $matches ) ) {
+			// Got a match.
+			$wp_query->matched_rule = $match;
+			break;
+		}
+	}
+
+	// Trim the query of everything up to the '?'.
+	$query = preg_replace( '!^.+\?!', '', $query );
+
+	// Substitute the substring matches into the query.
+	$query = addslashes( WP_MatchesMapRegex::apply( $query, $matches ) );
+
+	$wp_query->matched_query = $query;
+
+	// Parse the query.
+	parse_str( $query, $perma_query_vars );
+
+	$wp_query->query_vars = array();
+	$post_type_query_vars = array(
+		'post' => 'post',
+	);
+
+	$wp_query->public_query_vars = apply_filters( 'query_vars', $wp_query->public_query_vars );
+
+	foreach ( $wp_query->public_query_vars as $wpvar ) {
+		if ( isset( $wp_query->extra_query_vars[ $wpvar ] ) ) {
+			$wp_query->query_vars[ $wpvar ] = $wp_query->extra_query_vars[ $wpvar ];
+		} elseif ( isset( $_GET[ $wpvar ] ) && isset( $_POST[ $wpvar ] ) && $_GET[ $wpvar ] !== $_POST[ $wpvar ] ) { // phpcs:ignore WordPress.Security.NonceVerification
+			wp_die( esc_html__( 'A variable mismatch has been detected.' ), esc_html__( 'Sorry, you are not allowed to view this item.' ), 400 );
+		} elseif ( isset( $_POST[ $wpvar ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			$wp_query->query_vars[ $wpvar ] = $_POST[ $wpvar ]; // phpcs:ignore WordPress.Security
+		} elseif ( isset( $_GET[ $wpvar ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+			$wp_query->query_vars[ $wpvar ] = $_GET[ $wpvar ]; // phpcs:ignore WordPress.Security
+		} elseif ( isset( $perma_query_vars[ $wpvar ] ) ) {
+			$wp_query->query_vars[ $wpvar ] = $perma_query_vars[ $wpvar ];
+		}
+
+		if ( ! empty( $wp_query->query_vars[ $wpvar ] ) ) {
+			if ( ! is_array( $wp_query->query_vars[ $wpvar ] ) ) {
+				$wp_query->query_vars[ $wpvar ] = (string) $wp_query->query_vars[ $wpvar ];
+			} else {
+				foreach ( $wp_query->query_vars[ $wpvar ] as $vkey => $v ) {
+					if ( is_scalar( $v ) ) {
+						$wp_query->query_vars[ $wpvar ][ $vkey ] = (string) $v;
+					}
+				}
+			}
+
+			if ( isset( $post_type_query_vars[ $wpvar ] ) ) {
+				$wp_query->query_vars['post_type'] = $post_type_query_vars[ $wpvar ];
+				$wp_query->query_vars['name']      = $wp_query->query_vars[ $wpvar ];
+			}
+		}
+	}
+
+	return $wp_query;
 }
-add_filter( 'pre_handle_404', 'f9blogbase_blog_404', 10, 2 );
+add_action( 'parse_request', 'f9blogbase_parse_request' );
 
 /**
  * Filters the permalink for a post of a custom post type.
