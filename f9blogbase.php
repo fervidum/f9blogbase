@@ -1,11 +1,11 @@
 <?php
 /**
- * Plugin Name:     Blog Permalinks Base
- * Description:     Blog Permalinks Base functions.
+ * Plugin Name:     Blog Base Permalinks
+ * Description:     Blog Base Permalinks functions.
  * Author:          Fervidum
  * Author URI:      https://fervidum.github.io/
- * Version:         1.0.1
- * Directory:       https://fervidum.github.io/blogpermalinks
+ * Version:         1.0.2
+ * Directory:       https://fervidum.github.io/blogbase
  *
  * @package         f9blogbase
  */
@@ -30,10 +30,16 @@ function f9blogbase_file_path( $file = '' ) {
 }
 
 /**
+ * Includes Selfd library.
+ */
+if ( file_exists( f9blogbase_file_path( 'includes/libs/selfd/class-selfdirectory.php' ) ) ) {
+	require_once f9blogbase_file_path( 'includes/libs/selfd/class-selfdirectory.php' );
+}
+
+/**
  * Use Selfd to updates.
  */
 function f9blogbase_register_selfdirectory() {
-	require_once f9blogbase_file_path( 'includes/libs/selfd/class-selfdirectory.php' );
 	selfd( F9BLOGBASE_PLUGIN_FILE );
 }
 add_action( 'selfd_register', 'f9blogbase_register_selfdirectory' );
@@ -60,7 +66,7 @@ add_action( 'init', 'f9blogbase_load_textdomain', 0 );
  *
  * @return array
  */
-function f9_get_permalink_structure() {
+function f9blogbase_get_permalink_structure() {
 	$saved_permalinks = (array) get_option( 'f9blogbase_permalinks', array() );
 	$permalinks       = wp_parse_args(
 		array_filter( $saved_permalinks ),
@@ -105,7 +111,7 @@ function f9blogbase_settings_init() {
  * Show the settings.
  */
 function f9blogbase_settings() {
-	$permalinks = f9_get_permalink_structure();
+	$permalinks = f9blogbase_get_permalink_structure();
 	/* translators: %s: Home URL */
 	echo wp_kses_post( wpautop( sprintf( __( 'If you like, you may enter custom structures for your blog URLs here. For example, using <code>blog</code> would make your post blog links like <code>%sblog/sample-post/</code>. This setting affects blog post URLs only, not things such as blog post categories.', 'f9blogbase' ), esc_url( home_url( '/' ) ) ) ) );
 
@@ -113,24 +119,24 @@ function f9blogbase_settings() {
 	$base_slug    = urldecode( ( $blog_page_id > 0 && get_post( $blog_page_id ) ) ? get_page_uri( $blog_page_id ) : _x( 'blog', 'default-slug', 'f9blogbase' ) );
 
 	$structures = array(
-		0 => '',
+		0 => '/',
 		1 => '/' . trailingslashit( $base_slug ),
 	);
 	?>
 	<table class="form-table f9-permalink-structure">
 		<tbody>
 			<tr>
-				<th><label><input name="blog_permalink" type="radio" value="<?php echo esc_attr( $structures[0] ); ?>" class="f9tog" <?php checked( $structures[0], $permalinks['blog_base'] ); ?>> <?php esc_html_e( 'Default', 'f9blogbase' ); ?></label></th>
+				<th><label><input name="blog_permalink" type="radio" value="<?php echo esc_attr( $structures[0] ); ?>" class="f9tog" <?php checked( $structures[0], trailingslashit( $permalinks['blog_base'] ) ); ?>> <?php esc_html_e( 'Default', 'f9blogbase' ); ?></label></th>
 				<td><code class="default-example"><?php echo esc_html( home_url() ); ?>/?p=123</code> <code class="non-default-example"><?php echo esc_html( home_url() ); ?>/sample-post/</code></td>
 			</tr>
 			<?php if ( $blog_page_id ) : ?>
-				<tr>
-					<th><label><input name="blog_permalink" type="radio" value="<?php echo esc_attr( $structures[1] ); ?>" class="f9tog" <?php checked( $structures[1], $permalinks['blog_base'] ); ?>> <?php esc_html_e( 'Blog page base', 'f9blogbase' ); ?></label></th>
-					<td><code><?php echo esc_html( home_url() ); ?>/<?php echo esc_html( $base_slug ); ?>/sample-post/</code></td>
-				</tr>
+			<tr>
+				<th><label><input name="blog_permalink" type="radio" value="<?php echo esc_attr( $structures[1] ); ?>" class="f9tog" <?php checked( $structures[1], trailingslashit( $permalinks['blog_base'] ) ); ?>> <?php esc_html_e( 'Blog page base', 'f9blogbase' ); ?></label></th>
+				<td><code><?php echo esc_html( home_url() ); ?>/<?php echo esc_html( $base_slug ); ?>/sample-post/</code></td>
+			</tr>
 			<?php endif; ?>
 			<tr>
-				<th><label><input name="blog_permalink" id="f9blogbase_custom_selection" type="radio" value="custom" class="tog" <?php checked( in_array( $permalinks['blog_base'], $structures, true ), false ); ?>>
+				<th><label><input name="blog_permalink" id="f9blogbase_custom_selection" type="radio" value="custom" class="f9tog" <?php checked( ! in_array( trailingslashit( $permalinks['blog_base'] ), $structures, true ) ); ?>>
 					<?php esc_html_e( 'Custom base', 'f9blogbase' ); ?></label></th>
 				<td>
 					<input name="blog_permalink_structure" id="f9blogbase_permalink_structure" type="text" value="<?php echo esc_attr( $permalinks['blog_base'] ? trailingslashit( $permalinks['blog_base'] ) : '' ); ?>" class="regular-text code"> <span class="description"><?php esc_html_e( 'Enter a custom base to use. A base must be set or WordPress will use default instead.', 'f9blogbase' ); ?></span>
@@ -142,7 +148,11 @@ function f9blogbase_settings() {
 	<script type="text/javascript">
 		jQuery( function() {
 			jQuery('input.f9tog').change(function() {
-				jQuery('#f9blogbase_permalink_structure').val( jQuery( this ).val() );
+				if ( '/' === jQuery( this ).val() ) {
+					jQuery('#f9blogbase_permalink_structure').val( '' );
+				} else if ( 'custom' !== jQuery( this ).val() ) {
+					jQuery('#f9blogbase_permalink_structure').val( jQuery( this ).val() );
+				}
 			});
 			jQuery('.permalink-structure input').change(function() {
 				jQuery('.f9-permalink-structure').find('code.non-default-example, code.default-example').hide();
@@ -164,71 +174,79 @@ function f9blogbase_settings() {
 	<?php
 }
 
-/**
- * Switch F9blogbase to site language.
- */
-function f9_switch_to_site_locale() {
-	if ( function_exists( 'switch_to_locale' ) ) {
-		switch_to_locale( get_locale() );
+if ( ! function_exists( 'f9_switch_to_site_locale' ) ) {
+	/**
+	 * Switch F9blogbase to site language.
+	 */
+	function f9_switch_to_site_locale() {
+		if ( function_exists( 'switch_to_locale' ) ) {
+			switch_to_locale( get_locale() );
 
-		// Filter on plugin_locale so load_plugin_textdomain loads the correct locale.
-		add_filter( 'plugin_locale', 'get_locale' );
+			// Filter on plugin_locale so load_plugin_textdomain loads the correct locale.
+			add_filter( 'plugin_locale', 'get_locale' );
 
-		// Init F9blogbase locale.
-		f9blogbase_load_textdomain();
+			// Init F9blogbase locale.
+			f9blogbase_load_textdomain();
+		}
 	}
 }
 
-/**
- * Switch F9blogbase language to original.
- */
-function f9_restore_locale() {
-	if ( function_exists( 'restore_previous_locale' ) ) {
-		restore_previous_locale();
+if ( ! function_exists( 'f9_restore_locale' ) ) {
+	/**
+	 * Switch F9blogbase language to original.
+	 */
+	function f9_restore_locale() {
+		if ( function_exists( 'restore_previous_locale' ) ) {
+			restore_previous_locale();
 
-		// Remove filter.
-		remove_filter( 'plugin_locale', 'get_locale' );
+			// Remove filter.
+			remove_filter( 'plugin_locale', 'get_locale' );
 
-		// Init F9blogbase locale.
-		f9blogbase_load_textdomain();
+			// Init F9blogbase locale.
+			f9blogbase_load_textdomain();
+		}
 	}
 }
 
-/**
- * Clean variables using sanitize_text_field. Arrays are cleaned recursively.
- * Non-scalar values are ignored.
- *
- * @param string|array $var Data to sanitize.
- * @return string|array
- */
-function f9_clean( $var ) {
-	if ( is_array( $var ) ) {
-		return array_map( 'f9_clean', $var );
-	} else {
-		return is_scalar( $var ) ? sanitize_text_field( $var ) : $var;
+if ( ! function_exists( 'f9_clean' ) ) {
+	/**
+	 * Clean variables using sanitize_text_field. Arrays are cleaned recursively.
+	 * Non-scalar values are ignored.
+	 *
+	 * @param string|array $var Data to sanitize.
+	 * @return string|array
+	 */
+	function f9_clean( $var ) {
+		if ( is_array( $var ) ) {
+			return array_map( 'f9_clean', $var );
+		} else {
+			return is_scalar( $var ) ? sanitize_text_field( $var ) : $var;
+		}
 	}
 }
 
-/**
- * Sanitize permalink values before insertion into DB.
- *
- * Cannot use f9_clean because it sometimes strips % chars and breaks the user's setting.
- *
- * @param  string $value Permalink.
- * @return string
- */
-function f9_sanitize_permalink( $value ) {
-	global $wpdb;
+if ( ! function_exists( 'f9_sanitize_permalink' ) ) {
+	/**
+	 * Sanitize permalink values before insertion into DB.
+	 *
+	 * Cannot use f9_clean because it sometimes strips % chars and breaks the user's setting.
+	 *
+	 * @param  string $value Permalink.
+	 * @return string
+	 */
+	function f9_sanitize_permalink( $value ) {
+		global $wpdb;
 
-	$value = $wpdb->strip_invalid_text_for_column( $wpdb->options, 'option_value', $value );
+		$value = $wpdb->strip_invalid_text_for_column( $wpdb->options, 'option_value', $value );
 
-	if ( is_wp_error( $value ) ) {
-		$value = '';
+		if ( is_wp_error( $value ) ) {
+			$value = '';
+		}
+
+		$value = esc_url_raw( trim( $value ) );
+		$value = str_replace( 'http://', '', $value );
+		return untrailingslashit( $value );
 	}
-
-	$value = esc_url_raw( trim( $value ) );
-	$value = str_replace( 'http://', '', $value );
-	return untrailingslashit( $value );
 }
 
 /**
@@ -255,7 +273,7 @@ function f9blogbase_settings_save() {
 			} else {
 				$blog_base = '/';
 			}
-		} elseif ( empty( $product_base ) ) {
+		} elseif ( empty( $blog_base ) ) {
 			$product_base = _x( 'blog', 'slug', 'f9blogbase' );
 		}
 
@@ -282,7 +300,7 @@ function f9blogbase_settings_save() {
 function f9blogbase_match_query_post() {
 	$match_query = array();
 
-	$permalinks = f9_get_permalink_structure();
+	$permalinks = f9blogbase_get_permalink_structure();
 
 	if ( $permalinks['blog_rewrite_slug'] ) {
 		$prefix = trim( $permalinks['blog_rewrite_slug'], '/' );
@@ -318,7 +336,7 @@ function f9blogbase_match_query_post() {
 function f9blogbase_match_query_term( $taxonomy ) {
 	$match_query = array();
 
-	$permalinks = f9_get_permalink_structure();
+	$permalinks = f9blogbase_get_permalink_structure();
 
 	$tax_base = get_option( $taxonomy . '_base' );
 
@@ -392,7 +410,7 @@ function f9blogbase_blog_rewrite_rule( $post_type ) {
 		return;
 	}
 
-	$permalinks = f9_get_permalink_structure();
+	$permalinks = f9blogbase_get_permalink_structure();
 
 	if ( $permalinks['blog_rewrite_slug'] ) {
 		$rules = array_merge(
@@ -414,13 +432,17 @@ add_action( 'registered_post_type', 'f9blogbase_blog_rewrite_rule', 10, 2 );
  * @return object
  */
 function f9blogbase_parse_request( $wp_query ) {
-	$permalinks = f9_get_permalink_structure();
+	$permalinks = f9blogbase_get_permalink_structure();
 
 	if ( ! $permalinks['blog_rewrite_slug'] ) {
 		return $wp_query;
 	}
 
 	$prefix = trim( $permalinks['blog_rewrite_slug'], '/' );
+
+	if ( ! preg_match( "#^$prefix#", $wp_query->request ) && ! preg_match( "#^$prefix#", urldecode( $wp_query->request ) ) ) {
+		return $wp_query;
+	}
 
 	$taxonomies = apply_filters(
 		'f9blogbase_post_taxonomies',
@@ -431,7 +453,6 @@ function f9blogbase_parse_request( $wp_query ) {
 	);
 
 	$rules = array();
-
 	foreach ( $taxonomies as $taxonomy ) {
 		$tax_base = get_option( $taxonomy . '_base' );
 		if ( $tax_base ) {
@@ -517,7 +538,7 @@ add_action( 'parse_request', 'f9blogbase_parse_request' );
  * @return bool
  */
 function f9blogbase_blog_link( $permalink, $post, $leavename ) {
-	$permalinks = f9_get_permalink_structure();
+	$permalinks = f9blogbase_get_permalink_structure();
 
 	if ( ! $permalinks['blog_rewrite_slug'] ) {
 		return $permalink;
